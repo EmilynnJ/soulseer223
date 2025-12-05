@@ -1,7 +1,7 @@
 const { v4: uuidv4 } = require('uuid');
 const { query } = require('./db');
 const { debitWallet, settleSessionPayout } = require('./routes/stripe');
-const { BILLING_INTERVAL_SECONDS } = require('./config');
+const { BILLING_INTERVAL_SECONDS, DISCONNECT_GRACE_SECONDS } = require('./config');
 
 function attachRTC(io) {
   const users = new Map(); // userId -> { socketId, role }
@@ -45,7 +45,8 @@ function attachRTC(io) {
         billingTimer: null,
         totalSeconds: 0,
         amountCharged: 0,
-        active: true
+        active: true,
+        disconnectAt: null
       };
       sessions.set(sessionId, state);
       const client = users.get(s.client_id);
@@ -73,6 +74,23 @@ function attachRTC(io) {
       const st = sessions.get(sessionId); if (!st) return;
       st.connected[role] = connected;
       const isConnected = st.connected.client && st.connected.reader;
+      if (!isConnected && !st.disconnectAt) {
+        st.disconnectAt = Date.now() + DISCONNECT_GRACE_SECONDS * 1000;
+        setTimeout(async () => {
+          const cur = sessions.get(sessionId);
+          if (!cur || !cur.active) return;
+          const bothConnected = cur.connected.client && cur.connected.reader;
+          if (!bothConnected && cur.disconnectAt && Date.now() >= cur.disconnectAt) {
+            io.to(cur.roomId).emit('session:end', { reason: 'disconnected_timeout' });
+            if (cur.billingTimer) clearInterval(cur.billingTimer);
+            cur.active = false;
+            await finalizeSession(cur.sessionId);
+          }
+        }, DISCONNECT_GRACE_SECONDS * 1000 + 100);
+      }
+      if (isConnected) {
+        st.disconnectAt = null;
+      }
       if (isConnected && !st.billingTimer) {
         st.billingTimer = setInterval(async () => {
           if (!st.active) return;

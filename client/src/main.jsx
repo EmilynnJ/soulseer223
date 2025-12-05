@@ -8,7 +8,7 @@ const clerkKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <ClerkProvider publishableKey={clerkKey} frontendApi={import.meta.env.VITE_CLERK_FRONTEND_API_URL}>
+    <ClerkProvider publishableKey={clerkKey}>
       <App />
     </ClerkProvider>
   </React.StrictMode>

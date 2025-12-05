@@ -1,7 +1,7 @@
 const express = require('express');
 const Stripe = require('stripe');
 const { query } = require('../db');
-const { STRIPE_SECRET_KEY, CLIENT_URL, READER_PAYOUT_PERCENT } = require('../config');
+const { STRIPE_SECRET_KEY, CLIENT_URL, READER_PAYOUT_PERCENT, STRIPE_WEBHOOK_SECRET } = require('../config');
 const { authMiddleware } = require('./auth');
 const stripe = new Stripe(STRIPE_SECRET_KEY || '', { apiVersion: '2024-06-20' });
 
@@ -78,7 +78,7 @@ async function settleSessionPayout(sessionId) {
 const stripeWebhookHandler = async (req, res) => {
   const sig = req.headers['stripe-signature'];
   try {
-    const event = stripe.webhooks.constructEvent(req.rawBody, sig, process.env.STRIPE_WEBHOOK_SECRET);
+    const event = stripe.webhooks.constructEvent(req.rawBody, sig, STRIPE_WEBHOOK_SECRET);
     if (event.type === 'payment_intent.succeeded') {
       const pi = event.data.object;
       const customerId = pi.customer;
@@ -91,5 +91,67 @@ const stripeWebhookHandler = async (req, res) => {
     res.status(400).send(`Webhook Error: ${err.message}`);
   }
 };
+
+// List active products with prices (synced with Stripe)
+stripeRouter.get('/products', async (req, res) => {
+  try {
+    const products = await stripe.products.list({ active: true, limit: 100, expand: ['data.default_price'] });
+    const out = products.data.map(p => {
+      const price = p.default_price || null;
+      return {
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        images: p.images || [],
+        metadata: p.metadata || {},
+        price: price ? { id: price.id, unit_amount: price.unit_amount, currency: price.currency, recurring: price.recurring || null } : null
+      };
+    });
+    res.json({ products: out });
+  } catch (e) {
+    console.error('products_error', e.message);
+    res.status(500).json({ error: 'products_error' });
+  }
+});
+
+// Create Checkout Session for purchasing a product
+stripeRouter.post('/checkout', authMiddleware, async (req, res) => {
+  try {
+    const { price_id, quantity = 1 } = req.body || {};
+    if (!price_id) return res.status(400).json({ error: 'missing_price' });
+
+    // Fetch price and associated product for metadata (e.g., reader attribution)
+    const price = await stripe.prices.retrieve(price_id, { expand: ['product'] });
+    const product = price.product;
+    let transferData = undefined;
+    let applicationFeeAmount = undefined;
+
+    // If this product belongs to a reader, route funds to their Connect account and keep platform fee
+    const readerUserId = product?.metadata?.reader_user_id || null;
+    if (readerUserId) {
+      const uRes = await query('select stripe_account_id from users where id=$1 and role=$2', [readerUserId, 'reader']);
+      const acct = uRes.rows[0]?.stripe_account_id;
+      if (acct) {
+        const amount = (price.unit_amount || 0) * quantity;
+        const platformCut = Math.floor(amount * (1 - (process.env.READER_PAYOUT_PERCENT ? Number(process.env.READER_PAYOUT_PERCENT) : 0.85)));
+        transferData = { destination: acct };
+        applicationFeeAmount = platformCut;
+      }
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      line_items: [{ price: price_id, quantity }],
+      success_url: CLIENT_URL + '/shop?status=success',
+      cancel_url: CLIENT_URL + '/shop?status=cancelled',
+      payment_intent_data: (transferData && applicationFeeAmount != null) ? { transfer_data: transferData, application_fee_amount: applicationFeeAmount } : undefined
+    });
+
+    res.json({ url: session.url });
+  } catch (e) {
+    console.error('checkout_error', e.message);
+    res.status(500).json({ error: 'checkout_error' });
+  }
+});
 
 module.exports = { stripeRouter, stripeWebhookHandler, creditWallet, debitWallet, settleSessionPayout };
