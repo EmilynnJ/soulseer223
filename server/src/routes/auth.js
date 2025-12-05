@@ -57,7 +57,12 @@ async function createTables() {
 async function clerkAuthMiddleware(req, res, next) {
   try {
     const auth = req.headers.authorization || '';
-    const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+    let token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+    if (!token) {
+      const cookies = req.headers.cookie || '';
+      const m = cookies.match(/(?:^|;\s*)__session=([^;]+)/);
+      if (m) token = decodeURIComponent(m[1]);
+    }
     if (!token) return res.status(401).json({ error: 'unauthorized' });
     const decoded = await verifyClerkToken(token);
     req.clerkUserId = decoded.sub;

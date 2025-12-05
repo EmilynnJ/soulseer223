@@ -179,16 +179,18 @@ function Chat({ sessionId, user }) {
 }
 
 export default function App() {
-  const { getToken } = useAuth()
+  const { getToken, isSignedIn } = useAuth()
   const [auth, setAuth] = useState(null)
   const [session, setSession] = useState(null)
   const [config, setConfig] = useState(null)
   const [preCall, setPreCall] = useState(false)
 
   useEffect(()=>{
+    if (!isSignedIn) return
     (async()=>{
-      const token = await getToken()
-      if (!token) return setAuth(null)
+      let token = await getToken()
+      if (!token) token = await getToken({ template: 'default' })
+      if (!token) return
       const { user } = await api('/api/auth/me', { token })
       setAuth({ token, user })
       registerSocketUser(user)
@@ -200,7 +202,7 @@ export default function App() {
       })
     })()
     return ()=> socket.off('session:new')
-  },[])
+  },[isSignedIn])
 
   useEffect(()=>{ (async()=>{ try { const c = await fetchPublicConfig(); setConfig(c) } catch {} })() },[])
 
