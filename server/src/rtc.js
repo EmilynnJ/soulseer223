@@ -1,6 +1,7 @@
 const { v4: uuidv4 } = require('uuid');
 const { query } = require('./db');
 const { debitWallet, settleSessionPayout } = require('./routes/stripe');
+const { BILLING_INTERVAL_SECONDS } = require('./config');
 
 function attachRTC(io) {
   const users = new Map(); // userId -> { socketId, role }
@@ -77,7 +78,7 @@ function attachRTC(io) {
           if (!st.active) return;
           const bothConnected = st.connected.client && st.connected.reader;
           if (!bothConnected) return;
-          st.totalSeconds += 60;
+          st.totalSeconds += BILLING_INTERVAL_SECONDS;
           const ok = await debitWallet(st.clientId, st.rate_cents);
           if (!ok) {
             io.to(st.roomId).emit('session:end', { reason: 'insufficient_balance' });
@@ -87,10 +88,10 @@ function attachRTC(io) {
             return;
           }
           st.amountCharged += st.rate_cents;
-          const minuteIndex = Math.ceil(st.totalSeconds / 60);
+          const minuteIndex = Math.ceil(st.totalSeconds / BILLING_INTERVAL_SECONDS);
           await query('insert into session_minutes(session_id, minute_index, charged_cents) values ($1,$2,$3)', [st.sessionId, minuteIndex, st.rate_cents]);
           io.to(st.roomId).emit('billing:tick', { minuteIndex, charged_cents: st.rate_cents, total_charged_cents: st.amountCharged });
-        }, 60_000);
+        }, BILLING_INTERVAL_SECONDS * 1000);
       }
     });
 

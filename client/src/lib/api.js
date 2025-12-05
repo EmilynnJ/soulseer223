@@ -1,4 +1,5 @@
-const API_URL = window.__CONFIG__?.API_URL || 'http://localhost:4000';
+import { getApiUrl } from './config'
+const API_URL = getApiUrl();
 
 export async function api(path, { method = 'GET', token, data } = {}) {
   const headers = { 'Content-Type': 'application/json' };

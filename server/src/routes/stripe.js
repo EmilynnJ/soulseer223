@@ -10,8 +10,9 @@ const stripeRouter = express.Router();
 stripeRouter.post('/topup', authMiddleware, async (req, res) => {
   const { amount_cents } = req.body;
   if (!amount_cents || amount_cents < 100) return res.status(400).json({ error: 'invalid_amount' });
-  const userRes = await query('select id, stripe_customer_id, email, name from users where id=$1', [req.user.id]);
+  const userRes = await query('select id, stripe_customer_id, email, name, role from users where clerk_user_id=$1', [req.clerkUserId]);
   const user = userRes.rows[0];
+  if (user.role !== 'client') return res.status(403).json({ error: 'not_client' });
   let customerId = user.stripe_customer_id;
   if (!customerId) {
     const customer = await stripe.customers.create({ email: user.email, name: user.name });
@@ -29,7 +30,7 @@ stripeRouter.post('/topup', authMiddleware, async (req, res) => {
 });
 
 stripeRouter.post('/connect/create', authMiddleware, async (req, res) => {
-  const userRes = await query('select id, role, stripe_account_id, email from users where id=$1', [req.user.id]);
+  const userRes = await query('select id, role, stripe_account_id, email from users where clerk_user_id=$1', [req.clerkUserId]);
   const user = userRes.rows[0];
   if (user.role !== 'reader') return res.status(403).json({ error: 'not_reader' });
   let acctId = user.stripe_account_id;

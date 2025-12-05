@@ -2,41 +2,17 @@ import { useEffect, useState } from 'react'
 import { api } from './lib/api'
 import { socket, registerSocketUser } from './lib/socket'
 import { createPeerConnection, getMedia } from './lib/webrtc'
+import { fetchPublicConfig } from './lib/config'
+import WalletTopUp from './components/WalletTopUp'
+import ReaderDashboard from './ReaderDashboard'
+import PreCall from './PreCall'
+import { SignedIn, SignedOut, SignIn, useAuth } from '@clerk/clerk-react'
 
-function Login({ onAuth }) {
-  const [email, setEmail] = useState('')
-  const [name, setName] = useState('')
-  const [password, setPassword] = useState('')
-  const [role, setRole] = useState('client')
-  const [mode, setMode] = useState('login')
-
-  async function submit() {
-    try {
-      const path = mode === 'login' ? '/api/auth/login' : '/api/auth/register'
-      const { token, user } = await api(path, { method: 'POST', data: { email, password, name, role } })
-      onAuth({ token, user })
-    } catch (e) { alert(e.message) }
-  }
-
+function Login() {
   return (
     <div className="p-6 max-w-md mx-auto mt-10 bg-black/60 rounded-xl border border-white/10">
       <h1 className="text-3xl mb-4 brand">SoulSeer</h1>
-      <div className="flex gap-2 mb-4">
-        <button className={`btn ${mode==='login'?'btn-primary':''}`} onClick={()=>setMode('login')}>Login</button>
-        <button className={`btn ${mode==='register'?'btn-primary':''}`} onClick={()=>setMode('register')}>Register</button>
-      </div>
-      <input className="w-full mb-2 p-2 rounded bg-black/50 border border-white/10" placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} />
-      {mode==='register' && (
-        <>
-          <input className="w-full mb-2 p-2 rounded bg-black/50 border border-white/10" placeholder="Name" value={name} onChange={e=>setName(e.target.value)} />
-          <select className="w-full mb-2 p-2 rounded bg-black/50 border border-white/10" value={role} onChange={e=>setRole(e.target.value)}>
-            <option value="client">Client</option>
-            <option value="reader">Reader</option>
-          </select>
-        </>
-      )}
-      <input type="password" className="w-full mb-4 p-2 rounded bg-black/50 border border-white/10" placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)} />
-      <button className="btn btn-primary w-full" onClick={submit}>{mode==='login'?'Login':'Create account'}</button>
+      <SignIn signUp={{ enabled: true }} />
     </div>
   )
 }
@@ -93,7 +69,8 @@ function Session({ token, user, session }) {
       setLocalStream(stream)
       const peer = createPeerConnection({
         onTrack: (e)=> setRemoteStream(e.streams[0]),
-        onIceCandidate: (candidate)=> socket.emit('rtc:ice', { sessionId: session.sessionId, candidate })
+        onIceCandidate: (candidate)=> socket.emit('rtc:ice', { sessionId: session.sessionId, candidate }),
+        turn: config?.turn
       })
       stream.getTracks().forEach(t=> peer.addTrack(t, stream))
       setPc(peer)
@@ -114,7 +91,8 @@ function Session({ token, user, session }) {
       socket.on('session:end', ({ reason }) => alert(`Session ended: ${reason}`))
 
       peer.onconnectionstatechange = ()=>{
-        const connected = ['connected','completed'].includes(peer.connectionState)
+        const state = peer.connectionState
+        const connected = ['connected','completed'].includes(state)
         socket.emit('rtc:state', { sessionId: session.sessionId, role, connected })
       }
 
@@ -135,6 +113,22 @@ function Session({ token, user, session }) {
     socket.emit('session:end', { sessionId: session.sessionId })
   }
 
+  async function reconnect() {
+    if (pc) { pc.close() }
+    const stream = await getMedia({ video: true, audio: true })
+    setLocalStream(stream)
+    const peer = createPeerConnection({
+      onTrack: (e)=> setRemoteStream(e.streams[0]),
+      onIceCandidate: (candidate)=> socket.emit('rtc:ice', { sessionId: session.sessionId, candidate }),
+      turn: config?.turn
+    })
+    stream.getTracks().forEach(t=> peer.addTrack(t, stream))
+    setPc(peer)
+    const offer = await peer.createOffer({ iceRestart: true })
+    await peer.setLocalDescription(offer)
+    socket.emit('rtc:offer', { sessionId: session.sessionId, sdp: peer.localDescription })
+  }
+
   return (
     <div className="max-w-4xl mx-auto mt-6 p-4 bg-black/60 rounded-xl border border-white/10">
       <div className="flex items-center justify-between mb-3">
@@ -147,6 +141,7 @@ function Session({ token, user, session }) {
       </div>
       <div className="mt-3 flex gap-2">
         <button className="btn btn-primary" onClick={end}>End Session</button>
+        <button className="btn btn-outline" onClick={reconnect}>Reconnect</button>
       </div>
       <div className="mt-4 p-3 bg-black/40 rounded border border-white/10">
         <Chat sessionId={session.sessionId} user={user} />
@@ -183,30 +178,46 @@ function Chat({ sessionId, user }) {
 }
 
 export default function App() {
+  const { getToken } = useAuth()
   const [auth, setAuth] = useState(null)
   const [session, setSession] = useState(null)
+  const [config, setConfig] = useState(null)
+  const [preCall, setPreCall] = useState(false)
 
   useEffect(()=>{
-    if (!auth) return
-    registerSocketUser(auth.user)
-    socket.on('session:new', ({ sessionId, clientId }) => {
-      if (auth.user.role === 'reader') {
-        const accept = confirm('Incoming session. Accept?')
-        if (accept) socket.emit('session:accept', { sessionId })
-      }
-    })
+    (async()=>{
+      const token = await getToken()
+      if (!token) return setAuth(null)
+      const { user } = await api('/api/auth/me', { token })
+      setAuth({ token, user })
+      registerSocketUser(user)
+      socket.on('session:new', ({ sessionId }) => {
+        if (user.role === 'reader') {
+          const accept = confirm('Incoming session. Accept?')
+          if (accept) socket.emit('session:accept', { sessionId })
+        }
+      })
+    })()
     return ()=> socket.off('session:new')
-  },[auth])
+  },[])
 
-  function onStartSession(data) { setSession(data) }
+  useEffect(()=>{ (async()=>{ try { const c = await fetchPublicConfig(); setConfig(c) } catch {} })() },[])
 
-  if (!auth) return <Login onAuth={setAuth} />
+  function onStartSession(data) { setPreCall(true); setSession(data) }
+
+  if (!auth) return (
+    <>
+      <SignedOut><Login /></SignedOut>
+      <SignedIn><div>Loading account…</div></SignedIn>
+    </>
+  )
+  if (preCall) return <PreCall onContinue={()=> setPreCall(false)} />
   if (session) return <Session token={auth.token} user={auth.user} session={session} />
-  if (auth.user.role === 'client') return <ReadersList token={auth.token} user={auth.user} onStartSession={onStartSession} />
-  return (
-    <div className="p-6 max-w-xl mx-auto mt-10 bg-black/60 rounded-xl border border-white/10">
-      <div className="brand text-3xl mb-4">Reader Dashboard</div>
-      <div>Waiting for incoming session requests…</div>
+  if (auth.user.role === 'client') return (
+    <div>
+      <div className="max-w-3xl mx-auto mt-6"><WalletTopUp token={auth.token} publishableKey={config?.stripe_publishable_key || import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY} /></div>
+      <ReadersList token={auth.token} user={auth.user} onStartSession={onStartSession} />
     </div>
   )
+  return <ReaderDashboard token={auth.token} />
 }

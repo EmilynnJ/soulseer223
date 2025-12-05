@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { query } = require('../db');
 const { JWT_SECRET } = require('../config');
+const { verifyClerkToken, createClerkUser } = require('../clerk');
 
 const authRouter = express.Router();
 
@@ -12,12 +13,14 @@ function signToken(user) {
 
 async function createTables() {
   await query(`
+    create extension if not exists pgcrypto;
     create table if not exists users (
       id uuid primary key default gen_random_uuid(),
       email text unique not null,
       name text not null,
       role text not null check (role in ('client','reader','admin')),
       password_hash text not null,
+      clerk_user_id text unique,
       stripe_customer_id text,
       stripe_account_id text,
       reader_rate_cents integer default 200,
@@ -50,44 +53,19 @@ async function createTables() {
   `);
 }
 
-authRouter.post('/register', async (req, res) => {
+// Clerk-authenticated request middleware
+async function clerkAuthMiddleware(req, res, next) {
   try {
-    await createTables();
-    const { email, name, password, role } = req.body;
-    if (!email || !name || !password || !role) return res.status(400).json({ error: 'missing_fields' });
-    if (!['client','reader','admin'].includes(role)) return res.status(400).json({ error: 'invalid_role' });
-    const existing = await query('select id from users where email=$1', [email]);
-    if (existing.rows.length) return res.status(409).json({ error: 'email_taken' });
-    const hash = await bcrypt.hash(password, 10);
-    const result = await query(
-      'insert into users(email,name,role,password_hash) values ($1,$2,$3,$4) returning id, email, name, role',
-      [email, name, role, hash]
-    );
-    const user = result.rows[0];
-    await query('insert into wallets(user_id, balance_cents) values ($1, $2)', [user.id, 0]);
-    const token = signToken(user);
-    res.json({ token, user });
+    const auth = req.headers.authorization || '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+    if (!token) return res.status(401).json({ error: 'unauthorized' });
+    const decoded = await verifyClerkToken(token);
+    req.clerkUserId = decoded.sub;
+    next();
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'server_error' });
+    return res.status(401).json({ error: 'unauthorized' });
   }
-});
-
-authRouter.post('/login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    const result = await query('select * from users where email=$1', [email]);
-    if (!result.rows.length) return res.status(401).json({ error: 'invalid_credentials' });
-    const user = result.rows[0];
-    const ok = await bcrypt.compare(password, user.password_hash);
-    if (!ok) return res.status(401).json({ error: 'invalid_credentials' });
-    const token = signToken(user);
-    res.json({ token, user: { id: user.id, email: user.email, name: user.name, role: user.role, reader_rate_cents: user.reader_rate_cents } });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'server_error' });
-  }
-});
+}
 
 function authMiddleware(req, res, next) {
   const header = req.headers.authorization || '';
@@ -102,14 +80,43 @@ function authMiddleware(req, res, next) {
   }
 }
 
-authRouter.get('/me', authMiddleware, async (req, res) => {
-  const result = await query('select id, email, name, role, reader_rate_cents from users where id=$1', [req.user.id]);
-  res.json({ user: result.rows[0] });
+authRouter.get('/me', clerkAuthMiddleware, async (req, res) => {
+  await createTables();
+  const u = await query('select id, email, name, role, reader_rate_cents from users where clerk_user_id=$1', [req.clerkUserId]);
+  if (!u.rows.length) {
+    // Auto-provision as client only
+    const inserted = await query('insert into users(email,name,role,clerk_user_id,password_hash) values ($1,$2,$3,$4,$5) returning id, email, name, role, reader_rate_cents', ['client@unknown', 'Client', 'client', req.clerkUserId, '']);
+    const user = inserted.rows[0];
+    await query('insert into wallets(user_id, balance_cents) values ($1, $2)', [user.id, 0]);
+    return res.json({ user });
+  }
+  return res.json({ user: u.rows[0] });
 });
 
-authRouter.get('/readers', authMiddleware, async (req, res) => {
+authRouter.get('/wallet', clerkAuthMiddleware, async (req, res) => {
+  const u = await query('select id from users where clerk_user_id=$1', [req.clerkUserId]);
+  const w = await query('select balance_cents from wallets where user_id=$1', [u.rows[0].id]);
+  res.json({ balance_cents: w.rows[0]?.balance_cents ?? 0 });
+});
+
+authRouter.get('/readers', clerkAuthMiddleware, async (req, res) => {
   const result = await query('select id, name, reader_rate_cents from users where role=$1 order by name', ['reader']);
   res.json({ readers: result.rows });
 });
 
-module.exports = { authRouter, authMiddleware };
+authRouter.post('/admin/create-reader', clerkAuthMiddleware, async (req, res) => {
+  const adminRes = await query('select role from users where clerk_user_id=$1', [req.clerkUserId]);
+  const role = adminRes.rows[0]?.role;
+  if (role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+  const { email, name, rate_cents } = req.body;
+  if (!email || !name || !rate_cents) return res.status(400).json({ error: 'missing_fields' });
+  const clerkUser = await createClerkUser({ email, name });
+  const clerkId = clerkUser.id;
+  const existing = await query('select id from users where clerk_user_id=$1', [clerkId]);
+  if (existing.rows.length) return res.status(409).json({ error: 'reader_exists' });
+  const inserted = await query('insert into users(email,name,role,clerk_user_id,reader_rate_cents,password_hash) values ($1,$2,$3,$4,$5,$6) returning id, email, name, role, reader_rate_cents', [email, name, 'reader', clerkId, rate_cents, '']);
+  await query('insert into wallets(user_id, balance_cents) values ($1, $2)', [inserted.rows[0].id, 0]);
+  res.json({ reader: inserted.rows[0] });
+});
+
+module.exports = { authRouter, authMiddleware: clerkAuthMiddleware };
