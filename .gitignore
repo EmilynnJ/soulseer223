@@ -13,8 +13,14 @@ build/
 # Env and secrets
 .env
 .env.*
+**/.env
+**/.env.*
 server/.env
 client/.env
+.npmrc
+*.pem
+*.key
+*.crt
 
 # OS / IDE
 .DS_Store
