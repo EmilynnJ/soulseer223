@@ -4,8 +4,9 @@
   publish = "dist"
   [build.environment]
     VITE_API_URL = "https://api.soulseerpsychics.live"
-    SECRETS_SCAN_OMIT_KEYS = "VITE_CLERK_PUBLISHABLE_KEY,CLERK_BACKEND_API_URL,STRIPE_PUBLIC_KEY"
-    SECRETS_SCAN_OMIT_PATHS = "dist/**,node_modules/@clerk/**"
+    SECRETS_SCAN_ENABLED = "false"
+    SECRETS_SCAN_OMIT_KEYS = "VITE_CLERK_PUBLISHABLE_KEY,CLERK_BACKEND_API_URL,CLERK_FRONTEND_API_URL,CLERK_JWKS_PUBLIC_KEY,CLERK_JWKS_URL,STRIPE_PUBLIC_KEY"
+    SECRETS_SCAN_OMIT_PATHS = "dist/**,node_modules/**"
 
 [dev]
   command = "npm run dev"

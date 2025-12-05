@@ -3,6 +3,7 @@ const http = require('http');
 const cors = require('cors');
 const { Server } = require('socket.io');
 const dotenv = require('dotenv');
+const path = require('path');
 dotenv.config();
 
 const { authRouter, authMiddleware } = require('./routes/auth');
@@ -17,6 +18,7 @@ const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 const app = express();
 app.use(cors({ origin: CLIENT_URL, credentials: true }));
 app.use(express.json({ verify: (req, res, buf) => (req.rawBody = buf) }));
+app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
 app.get('/health', (req, res) => res.json({ ok: true }));
 app.use('/api/auth', authRouter);

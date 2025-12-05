@@ -50,6 +50,7 @@ stripeRouter.post('/connect/create', authMiddleware, async (req, res) => {
 
 async function creditWallet(userId, amount) {
   await query('update wallets set balance_cents = balance_cents + $1, updated_at=now() where user_id=$2', [amount, userId]);
+  await query('insert into wallet_ledger(user_id,type,amount_cents,source) values ($1,$2,$3,$4)', [userId, 'credit', amount, 'topup']);
 }
 
 async function debitWallet(userId, amount) {
@@ -57,6 +58,7 @@ async function debitWallet(userId, amount) {
   const bal = res.rows[0]?.balance_cents || 0;
   if (bal < amount) return false;
   await query('update wallets set balance_cents = balance_cents - $1, updated_at=now() where user_id=$2', [amount, userId]);
+  await query('insert into wallet_ledger(user_id,type,amount_cents,source) values ($1,$2,$3,$4)', [userId, 'debit', amount, 'session']);
   return true;
 }
 

@@ -1,4 +1,6 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { query } = require('../db');
@@ -24,12 +26,24 @@ async function createTables() {
       stripe_customer_id text,
       stripe_account_id text,
       reader_rate_cents integer default 200,
+      avatar_url text,
+      bio text,
+      specialties text,
       created_at timestamptz default now()
     );
     create table if not exists wallets (
       user_id uuid primary key references users(id) on delete cascade,
       balance_cents integer not null default 0,
       updated_at timestamptz default now()
+    );
+    create table if not exists wallet_ledger (
+      id uuid primary key default gen_random_uuid(),
+      user_id uuid references users(id) on delete cascade,
+      type text not null check (type in ('credit','debit','refund')),
+      amount_cents integer not null,
+      source text,
+      meta jsonb,
+      created_at timestamptz default now()
     );
     create table if not exists sessions (
       id uuid primary key default gen_random_uuid(),
@@ -71,6 +85,28 @@ async function createTables() {
       session_id uuid references sessions(id) on delete cascade,
       user_id uuid references users(id),
       reason text not null,
+      status text not null default 'open',
+      created_at timestamptz default now()
+    );
+    create table if not exists reader_applications (
+      id uuid primary key default gen_random_uuid(),
+      email text not null,
+      name text not null,
+      bio text,
+      experience_years integer,
+      specialties text,
+      rate_cents integer default 200,
+      timezone text,
+      availability text,
+      status text not null default 'submitted',
+      reader_user_id uuid,
+      created_at timestamptz default now()
+    );
+    create table if not exists support_tickets (
+      id uuid primary key default gen_random_uuid(),
+      user_id uuid references users(id) on delete cascade,
+      subject text not null,
+      message text not null,
       status text not null default 'open',
       created_at timestamptz default now()
     );
@@ -187,3 +223,153 @@ authRouter.post('/admin/create-reader', clerkAuthMiddleware, async (req, res) =>
 });
 
 module.exports = { authRouter, authMiddleware: clerkAuthMiddleware };
+authRouter.post('/apply-reader', async (req, res) => {
+  const { email, name, bio, experience_years, specialties, rate_cents, timezone, availability } = req.body || {};
+  if (!email || !name) return res.status(400).json({ error: 'missing_fields' });
+  const existing = await query('select id from reader_applications where email=$1 and status <> $2', [email, 'rejected']);
+  if (existing.rows.length) return res.status(409).json({ error: 'already_applied' });
+  const ins = await query('insert into reader_applications(email,name,bio,experience_years,specialties,rate_cents,timezone,availability) values ($1,$2,$3,$4,$5,$6,$7,$8) returning id, status', [email, name, bio || '', experience_years || 0, specialties || '', rate_cents || 200, timezone || '', availability || '']);
+  res.json({ application: ins.rows[0] });
+});
+
+authRouter.get('/admin/reader-applications', clerkAuthMiddleware, async (req, res) => {
+  const roleRes = await query('select role from users where clerk_user_id=$1', [req.clerkUserId]);
+  if (roleRes.rows[0]?.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+  const rows = await query('select * from reader_applications order by created_at desc');
+  res.json({ applications: rows.rows });
+});
+
+authRouter.post('/admin/reader-applications/:id/approve', clerkAuthMiddleware, async (req, res) => {
+  const roleRes = await query('select role from users where clerk_user_id=$1', [req.clerkUserId]);
+  if (roleRes.rows[0]?.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+  const id = req.params.id;
+  const appRes = await query('select * from reader_applications where id=$1', [id]);
+  const app = appRes.rows[0];
+  if (!app) return res.status(404).json({ error: 'not_found' });
+  const clerkUser = await createClerkUser({ email: app.email, name: app.name });
+  const clerkId = clerkUser.id;
+  const exists = await query('select id from users where clerk_user_id=$1', [clerkId]);
+  if (exists.rows.length) return res.status(409).json({ error: 'reader_exists' });
+  const rate = app.rate_cents || 200;
+  const inserted = await query('insert into users(email,name,role,clerk_user_id,reader_rate_cents,password_hash) values ($1,$2,$3,$4,$5,$6) returning id, email, name, role, reader_rate_cents', [app.email, app.name, 'reader', clerkId, rate, '']);
+  await query('insert into wallets(user_id, balance_cents) values ($1, $2)', [inserted.rows[0].id, 0]);
+  await query('update reader_applications set status=$1, reader_user_id=$2 where id=$3', ['approved', inserted.rows[0].id, id]);
+  res.json({ application: { id, status: 'approved' }, reader: inserted.rows[0] });
+});
+authRouter.get('/admin/users', clerkAuthMiddleware, async (req, res) => {
+  const roleRes = await query('select role from users where clerk_user_id=$1', [req.clerkUserId]);
+  if (roleRes.rows[0]?.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+  const rows = await query('select id, email, name, role, reader_rate_cents, avatar_url from users order by created_at desc');
+  res.json({ users: rows.rows });
+});
+
+authRouter.post('/admin/readers/:id/update', clerkAuthMiddleware, async (req, res) => {
+  const roleRes = await query('select role from users where clerk_user_id=$1', [req.clerkUserId]);
+  if (roleRes.rows[0]?.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+  const id = req.params.id;
+  const { name, rate_cents, avatar_url, bio, specialties } = req.body;
+  const uRes = await query('update users set name=coalesce($1,name), reader_rate_cents=coalesce($2,reader_rate_cents), avatar_url=coalesce($3,avatar_url), bio=coalesce($4,bio), specialties=coalesce($5,specialties) where id=$6 and role=$7 returning id, email, name, role, reader_rate_cents, avatar_url, bio, specialties', [name, rate_cents, avatar_url, bio, specialties, id, 'reader']);
+  if (!uRes.rows.length) return res.status(404).json({ error: 'not_found' });
+  res.json({ reader: uRes.rows[0] });
+});
+authRouter.post('/admin/readers/:id/avatar', clerkAuthMiddleware, async (req, res) => {
+  const roleRes = await query('select role from users where clerk_user_id=$1', [req.clerkUserId]);
+  if (roleRes.rows[0]?.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+  const id = req.params.id;
+  const { data_url } = req.body || {};
+  if (!data_url || typeof data_url !== 'string') return res.status(400).json({ error: 'missing_data' });
+  if (!data_url.startsWith('data:image/')) return res.status(400).json({ error: 'invalid_type' });
+  try {
+    const m = data_url.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+    if (!m) return res.status(400).json({ error: 'invalid_data' });
+    const mime = m[1];
+    const b64 = m[2];
+    const buf = Buffer.from(b64, 'base64');
+    if (buf.length > 5 * 1024 * 1024) return res.status(413).json({ error: 'file_too_large' });
+    const ext = mime.includes('png') ? '.png' : mime.includes('jpeg') || mime.includes('jpg') ? '.jpg' : mime.includes('webp') ? '.webp' : '';
+    if (!ext) return res.status(400).json({ error: 'unsupported_format' });
+    const dir = path.join(__dirname, '..', '..', 'uploads', 'avatars');
+    fs.mkdirSync(dir, { recursive: true });
+    const filename = `${id}-${Date.now()}${ext}`;
+    const filePath = path.join(dir, filename);
+    fs.writeFileSync(filePath, buf);
+    const publicUrl = `/uploads/avatars/${filename}`;
+    const uRes = await query('update users set avatar_url=$1 where id=$2 and role=$3 returning id, email, name, role, reader_rate_cents, avatar_url, bio, specialties', [publicUrl, id, 'reader']);
+    if (!uRes.rows.length) return res.status(404).json({ error: 'not_found' });
+    res.json({ reader: uRes.rows[0] });
+  } catch (e) {
+    res.status(500).json({ error: 'upload_failed' });
+  }
+});
+
+authRouter.post('/support/tickets', clerkAuthMiddleware, async (req, res) => {
+  const uRes = await query('select id from users where clerk_user_id=$1', [req.clerkUserId]);
+  const me = uRes.rows[0];
+  const { subject, message } = req.body || {};
+  if (!me || !subject || !message) return res.status(400).json({ error: 'missing_fields' });
+  const ins = await query('insert into support_tickets(user_id, subject, message) values ($1,$2,$3) returning id, subject, message, status, created_at', [me.id, subject, message]);
+  res.json({ ticket: ins.rows[0] });
+});
+
+authRouter.get('/admin/support/tickets', clerkAuthMiddleware, async (req, res) => {
+  const roleRes = await query('select role from users where clerk_user_id=$1', [req.clerkUserId]);
+  if (roleRes.rows[0]?.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+  const rows = await query('select st.id, st.subject, st.message, st.status, st.created_at, st.user_id, u.email, u.name from support_tickets st join users u on u.id=st.user_id order by st.created_at desc');
+  res.json({ tickets: rows.rows });
+});
+
+authRouter.post('/admin/support/tickets/:id/status', clerkAuthMiddleware, async (req, res) => {
+  const roleRes = await query('select role from users where clerk_user_id=$1', [req.clerkUserId]);
+  if (roleRes.rows[0]?.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+  const id = req.params.id;
+  const { status } = req.body || {};
+  if (!status) return res.status(400).json({ error: 'missing_fields' });
+  const u = await query('update support_tickets set status=$1 where id=$2 returning id, subject, message, status, created_at', [status, id]);
+  if (!u.rows.length) return res.status(404).json({ error: 'not_found' });
+  res.json({ ticket: u.rows[0] });
+});
+
+authRouter.get('/admin/ledger', clerkAuthMiddleware, async (req, res) => {
+  const roleRes = await query('select role from users where clerk_user_id=$1', [req.clerkUserId]);
+  if (roleRes.rows[0]?.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+  const rows = await query('select wl.id, wl.user_id, u.email, u.name, wl.type, wl.amount_cents, wl.source, wl.created_at from wallet_ledger wl join users u on u.id=wl.user_id order by wl.created_at desc limit 500');
+  res.json({ ledger: rows.rows });
+});
+
+authRouter.post('/admin/refund', clerkAuthMiddleware, async (req, res) => {
+  const roleRes = await query('select role from users where clerk_user_id=$1', [req.clerkUserId]);
+  if (roleRes.rows[0]?.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+  const { user_id, amount_cents, reason } = req.body;
+  if (!user_id || !amount_cents) return res.status(400).json({ error: 'missing_fields' });
+  await query('update wallets set balance_cents = balance_cents + $1, updated_at=now() where user_id=$2', [amount_cents, user_id]);
+  await query('insert into wallet_ledger(user_id,type,amount_cents,source,meta) values ($1,$2,$3,$4,$5)', [user_id, 'refund', amount_cents, 'admin_refund', JSON.stringify({ reason })]);
+  res.json({ ok: true });
+});
+
+authRouter.get('/admin/disputes', clerkAuthMiddleware, async (req, res) => {
+  const roleRes = await query('select role from users where clerk_user_id=$1', [req.clerkUserId]);
+  if (roleRes.rows[0]?.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+  const rows = await query('select * from disputes order by created_at desc');
+  res.json({ disputes: rows.rows });
+});
+
+authRouter.post('/admin/disputes/:id/status', clerkAuthMiddleware, async (req, res) => {
+  const roleRes = await query('select role from users where clerk_user_id=$1', [req.clerkUserId]);
+  if (roleRes.rows[0]?.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+  const id = req.params.id;
+  const { status } = req.body;
+  const dRes = await query('update disputes set status=$1 where id=$2 returning id, status', [status, id]);
+  if (!dRes.rows.length) return res.status(404).json({ error: 'not_found' });
+  res.json({ dispute: dRes.rows[0] });
+});
+
+authRouter.get('/admin/metrics', clerkAuthMiddleware, async (req, res) => {
+  const roleRes = await query('select role from users where clerk_user_id=$1', [req.clerkUserId]);
+  if (roleRes.rows[0]?.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+  const usersCount = await query("select count(*) from users");
+  const readersCount = await query("select count(*) from users where role='reader'");
+  const sessionsCount = await query("select count(*) from sessions");
+  const revenue = await query("select coalesce(sum(case when type='debit' then amount_cents end),0) as total from wallet_ledger");
+  const refunds = await query("select coalesce(sum(case when type='refund' then amount_cents end),0) as total from wallet_ledger");
+  res.json({ users: Number(usersCount.rows[0].count), readers: Number(readersCount.rows[0].count), sessions: Number(sessionsCount.rows[0].count), revenue_cents: Number(revenue.rows[0].total), refunds_cents: Number(refunds.rows[0].total) });
+});
