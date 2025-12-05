@@ -17,5 +17,12 @@
     "socket.io": "^4.7.5",
     "stripe": "^16.2.0",
     "uuid": "^9.0.1"
+  },
+  "overrides": {
+    "node-fetch": "2.6.11"
+  },
+  "optionalDependencies": {
+    "node-fetch": "2.6.11",
+    "jwks-rsa": "^3.0.1"
   }
 }
