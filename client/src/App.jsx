@@ -7,6 +7,7 @@ import WalletTopUp from './components/WalletTopUp'
 import ReaderDashboard from './ReaderDashboard'
 import PreCall from './PreCall'
 import { SignedIn, SignedOut, SignIn, useAuth } from '@clerk/clerk-react'
+import AdminDashboard from './AdminDashboard'
 
 function Login() {
   return (
@@ -219,5 +220,7 @@ export default function App() {
       <ReadersList token={auth.token} user={auth.user} onStartSession={onStartSession} />
     </div>
   )
-  return <ReaderDashboard token={auth.token} />
+  if (auth.user.role === 'reader') return <ReaderDashboard token={auth.token} />
+  if (auth.user.role === 'admin') return <AdminDashboard token={auth.token} />
+  return <div className="p-6 max-w-xl mx-auto mt-10 bg-black/60 rounded-xl border border-white/10">Unknown role</div>
 }
