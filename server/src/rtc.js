@@ -95,8 +95,9 @@ function attachRTC(io) {
       }
     });
 
-    socket.on('chat:send', ({ sessionId, message, sender }) => {
+    socket.on('chat:send', async ({ sessionId, message, sender }) => {
       const st = sessions.get(sessionId); if (!st) return;
+      try { await query('insert into session_messages(session_id, sender, message) values ($1,$2,$3)', [sessionId, sender, message]); } catch {}
       io.to(st.roomId).emit('chat:message', { message, sender, at: Date.now() });
     });
 

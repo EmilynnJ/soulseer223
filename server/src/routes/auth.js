@@ -50,6 +50,30 @@ async function createTables() {
       charged_cents integer not null,
       timestamp timestamptz default now()
     );
+    create table if not exists session_messages (
+      id uuid primary key default gen_random_uuid(),
+      session_id uuid references sessions(id) on delete cascade,
+      sender text not null,
+      message text not null,
+      created_at timestamptz default now()
+    );
+    create table if not exists ratings (
+      id uuid primary key default gen_random_uuid(),
+      session_id uuid references sessions(id) on delete cascade,
+      client_id uuid references users(id),
+      reader_id uuid references users(id),
+      rating integer not null check (rating between 1 and 5),
+      comment text,
+      created_at timestamptz default now()
+    );
+    create table if not exists disputes (
+      id uuid primary key default gen_random_uuid(),
+      session_id uuid references sessions(id) on delete cascade,
+      user_id uuid references users(id),
+      reason text not null,
+      status text not null default 'open',
+      created_at timestamptz default now()
+    );
   `);
 }
 
@@ -104,9 +128,47 @@ authRouter.get('/wallet', clerkAuthMiddleware, async (req, res) => {
   res.json({ balance_cents: w.rows[0]?.balance_cents ?? 0 });
 });
 
-authRouter.get('/readers', clerkAuthMiddleware, async (req, res) => {
-  const result = await query('select id, name, reader_rate_cents from users where role=$1 order by name', ['reader']);
+authRouter.get('/readers', async (req, res) => {
+  const result = await query(`
+    select u.id, u.name, u.reader_rate_cents,
+           coalesce(round(avg(r.rating)::numeric,2), 0) as avg_rating,
+           count(r.id) as ratings_count
+    from users u
+    left join ratings r on r.reader_id = u.id
+    where u.role = 'reader'
+    group by u.id
+    order by u.name
+  `);
   res.json({ readers: result.rows });
+});
+
+// Submit rating (clients only) after session ended
+authRouter.post('/ratings', clerkAuthMiddleware, async (req, res) => {
+  const uRes = await query('select id, role from users where clerk_user_id=$1', [req.clerkUserId]);
+  const me = uRes.rows[0];
+  if (!me || me.role !== 'client') return res.status(403).json({ error: 'forbidden' });
+  const { session_id, rating, comment } = req.body;
+  if (!session_id || !rating) return res.status(400).json({ error: 'missing_fields' });
+  const sRes = await query('select id, client_id, reader_id, status from sessions where id=$1', [session_id]);
+  const s = sRes.rows[0];
+  if (!s || s.client_id !== me.id) return res.status(404).json({ error: 'session_not_found' });
+  if (s.status !== 'ended') return res.status(400).json({ error: 'session_not_ended' });
+  const ins = await query('insert into ratings(session_id, client_id, reader_id, rating, comment) values ($1,$2,$3,$4,$5) returning id, rating, comment, created_at', [session_id, me.id, s.reader_id, rating, comment || '']);
+  res.json({ rating: ins.rows[0] });
+});
+
+// Transcript fetch (client, reader, or admin)
+authRouter.get('/sessions/:id/transcript', clerkAuthMiddleware, async (req, res) => {
+  const uRes = await query('select id, role from users where clerk_user_id=$1', [req.clerkUserId]);
+  const me = uRes.rows[0];
+  const sessionId = req.params.id;
+  const sRes = await query('select id, client_id, reader_id from sessions where id=$1', [sessionId]);
+  const s = sRes.rows[0];
+  if (!s) return res.status(404).json({ error: 'session_not_found' });
+  const allowed = me && (me.role === 'admin' || me.id === s.client_id || me.id === s.reader_id);
+  if (!allowed) return res.status(403).json({ error: 'forbidden' });
+  const msgs = await query('select sender, message, created_at from session_messages where session_id=$1 order by created_at', [sessionId]);
+  res.json({ messages: msgs.rows });
 });
 
 authRouter.post('/admin/create-reader', clerkAuthMiddleware, async (req, res) => {

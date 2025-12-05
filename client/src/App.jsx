@@ -18,14 +18,14 @@ function Login() {
   )
 }
 
-function ReadersList({ token, user, onStartSession }) {
+function ReadersList({ token, user, onStartSession, onRequireAuth }) {
   const [readers, setReaders] = useState([])
   useEffect(()=>{(async()=>{
     const { readers } = await api('/api/auth/readers', { token })
     setReaders(readers)
   })()},[token])
 
-  useEffect(()=>{ registerSocketUser(user) },[user])
+  useEffect(()=>{ if (user) registerSocketUser(user) },[user])
 
   useEffect(()=>{
     socket.on('session:accepted', ({ sessionId, roomId }) => {
@@ -37,6 +37,7 @@ function ReadersList({ token, user, onStartSession }) {
   },[onStartSession])
 
   function request(readerId) {
+    if (!user) { onRequireAuth?.(); return }
     socket.emit('session:request', { readerId })
     alert('Requested session. Waiting for reader to accept.')
   }
@@ -49,6 +50,7 @@ function ReadersList({ token, user, onStartSession }) {
           <div key={r.id} className="p-3 bg-black/50 rounded border border-white/10">
             <div className="font-bold">{r.name}</div>
             <div className="opacity-80">Rate ${(r.reader_rate_cents/100).toFixed(2)}/min</div>
+            <div className="opacity-80">Rating {r.avg_rating ?? 0} ({r.ratings_count ?? 0})</div>
             <button className="btn btn-outline mt-2" onClick={()=>request(r.id)}>Request Session</button>
           </div>
         ))}
@@ -208,18 +210,19 @@ export default function App() {
 
   function onStartSession(data) { setPreCall(true); setSession(data) }
 
+  const [requireLogin, setRequireLogin] = useState(false)
   if (!auth) return (
-    <>
-      <SignedOut><Login /></SignedOut>
-      <SignedIn><div>Loading account…</div></SignedIn>
-    </>
+    <div>
+      <ReadersList token={undefined} user={null} onStartSession={onStartSession} onRequireAuth={()=> setRequireLogin(true)} />
+      {requireLogin && <Login />}
+    </div>
   )
   if (preCall) return <PreCall onContinue={()=> setPreCall(false)} />
   if (session) return <Session token={auth.token} user={auth.user} session={session} />
   if (auth.user.role === 'client') return (
     <div>
       <div className="max-w-3xl mx-auto mt-6"><WalletTopUp token={auth.token} publishableKey={config?.stripe_publishable_key || import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY} /></div>
-      <ReadersList token={auth.token} user={auth.user} onStartSession={onStartSession} />
+      <ReadersList token={auth.token} user={auth.user} onStartSession={onStartSession} onRequireAuth={()=>{}} />
     </div>
   )
   if (auth.user.role === 'reader') return <ReaderDashboard token={auth.token} />
