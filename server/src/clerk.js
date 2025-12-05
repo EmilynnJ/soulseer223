@@ -1,11 +1,13 @@
 const jwksClient = require('jwks-rsa');
 const jwt = require('jsonwebtoken');
 const fetch = require('node-fetch');
-const { CLERK_JWKS_URL, CLERK_SECRET_KEY, CLERK_BACKEND_API_URL } = require('./config');
+const { CLERK_JWKS_URL, CLERK_SECRET_KEY, CLERK_BACKEND_API_URL, CLERK_JWKS_PUBLIC_KEY, CLERK_FRONTEND_API_URL } = require('./config');
 
-const client = jwksClient({ jwksUri: CLERK_JWKS_URL });
+const client = CLERK_JWKS_URL ? jwksClient({ jwksUri: CLERK_JWKS_URL }) : null;
 
 function getKey(header, callback) {
+  if (CLERK_JWKS_PUBLIC_KEY) return callback(null, CLERK_JWKS_PUBLIC_KEY);
+  if (!client) return callback(new Error('jwks_missing'));
   client.getSigningKey(header.kid, function (err, key) {
     if (err) return callback(err);
     const signingKey = key.getPublicKey();
@@ -15,7 +17,7 @@ function getKey(header, callback) {
 
 async function verifyClerkToken(token) {
   return new Promise((resolve, reject) => {
-    jwt.verify(token, getKey, {}, (err, decoded) => {
+    jwt.verify(token, getKey, { algorithms: ['RS256'], issuer: CLERK_FRONTEND_API_URL || undefined }, (err, decoded) => {
       if (err) return reject(err);
       resolve(decoded);
     });

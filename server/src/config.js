@@ -8,5 +8,10 @@ module.exports = {
   BILLING_INTERVAL_SECONDS: Number(process.env.BILLING_INTERVAL_SECONDS || 60),
   TURN_URL: process.env.TURN_URL || '',
   TURN_USERNAME: process.env.TURN_USERNAME || '',
-  TURN_PASSWORD: process.env.TURN_PASSWORD || ''
+  TURN_PASSWORD: process.env.TURN_PASSWORD || '',
+  CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY || '',
+  CLERK_FRONTEND_API_URL: process.env.CLERK_FRONTEND_API_URL || '',
+  CLERK_BACKEND_API_URL: process.env.CLERK_BACKEND_API_URL || '',
+  CLERK_JWKS_URL: process.env.CLERK_JWKS_URL || '',
+  CLERK_JWKS_PUBLIC_KEY: process.env.CLERK_JWKS_PUBLIC_KEY || ''
 };
