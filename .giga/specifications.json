@@ -1,0 +1,18 @@
+[
+  {
+    "fileName": "main-overview.mdc",
+    "description": "High-level system overview documenting the frontend-focused psychic reading platform, its core components, and architectural decisions"
+  },
+  {
+    "fileName": "reader-status-system.mdc",
+    "description": "Detailed documentation of the three-state reader availability system implementation, including status transitions and visual indicators"
+  },
+  {
+    "fileName": "session-types.mdc",
+    "description": "Documentation of the three session formats (Text/Voice/Video), their characteristics, and UI implementation details"
+  },
+  {
+    "fileName": "stream-management.mdc",
+    "description": "Documentation of the stream status system, including viewer count display and scheduled stream time management"
+  }
+]

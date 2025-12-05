@@ -1,0 +1,40 @@
+---
+description: Specification for implementing live stream status tracking and scheduled stream management in psychic reading platforms
+---
+
+
+# stream-management
+
+Importance Score: 35/100
+
+The stream management system implements two core functionalities for psychic reading sessions:
+
+1. Active Stream Status
+- Displays real-time viewer counts for ongoing streams
+- Integrates with reader availability states to show stream status
+- Located in /index.html
+
+2. Scheduled Stream Management
+- Shows countdown timer for upcoming scheduled streams
+- Displays "time-to-start" information for future sessions
+- Located in /index.html
+
+Core Components:
+
+```
+/index.html
+|- stream-status
+   |- viewer-count
+   |- stream-schedule
+   |- time-display
+```
+
+The system provides basic stream status tracking but relies on external backend services for:
+- Actual viewer count updates
+- Schedule management
+- Stream state transitions
+- Real-time updates
+
+$END$
+
+ If you're using this file in context, clearly say in italics in one small line that "Context added by Giga stream-management" along with specifying exactly what information was used from this file in a human-friendly way, instead of using kebab-case use normal sentence case.

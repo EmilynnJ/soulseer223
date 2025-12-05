@@ -1,0 +1,238 @@
+:root {
+  --pink: #FF69B4;
+  --gold: #FFD700;
+  --white: #FFFFFF;
+  --black: #000000;
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--white);
+  background-color: var(--black);
+  background-image: linear-gradient(rgba(0,0,0,0.5), rgba(0,0,0,0.8)), url("https://i.postimg.cc/sXdsKGTK/DALL-E-2025-06-06-14-36-29-A-vivid-ethereal-background-image-designed-for-a-psychic-reading-app.webp");
+  background-size: cover;
+  background-position: center;
+  font-family: "Playfair Display", serif;
+}
+
+.container {
+  width: min(1100px, 92%);
+  margin: 0 auto;
+}
+
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  backdrop-filter: blur(12px);
+  background: rgba(0,0,0,0.6);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.site-header .container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 0;
+}
+
+.brand {
+  font-family: "Alex Brush", cursive;
+  font-size: 44px;
+  color: var(--pink);
+  text-decoration: none;
+}
+
+.nav a {
+  color: var(--white);
+  text-decoration: none;
+  font-size: 16px;
+  margin-left: 20px;
+}
+
+.nav a[aria-current="page"] {
+  color: var(--pink);
+}
+
+.hero {
+  padding: 40px 0 64px;
+  text-align: center;
+}
+
+.hero-image {
+  display: block;
+  width: 100%;
+  max-width: 980px;
+  margin: 0 auto 24px;
+  border-radius: 16px;
+  border: 2px solid var(--gold);
+  box-shadow: 0 10px 30px rgba(255, 105, 180, 0.25);
+}
+
+.tagline {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.section {
+  padding: 24px 0 56px;
+}
+
+.section-title {
+  font-family: "Alex Brush", cursive;
+  font-size: 36px;
+  color: var(--pink);
+  margin: 0 0 14px;
+}
+
+.section-lead {
+  margin: 0 0 24px;
+  opacity: 0.9;
+}
+
+.grid {
+  display: grid;
+  gap: 18px;
+}
+
+.grid.three {
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 900px) {
+  .grid.three { grid-template-columns: repeat(3, 1fr); }
+}
+
+.card {
+  background: rgba(0,0,0,0.55);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 14px;
+  padding: 18px;
+  box-shadow: 0 12px 30px rgba(255, 105, 180, 0.12);
+}
+
+.btn {
+  display: inline-block;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 2px solid var(--gold);
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 160ms ease;
+}
+
+.btn:focus { outline: 2px solid var(--pink); outline-offset: 2px; }
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--pink), #ff85c1);
+  color: var(--black);
+  box-shadow: 0 8px 18px rgba(255,105,180,0.35);
+}
+
+.btn-outline {
+  background: transparent;
+  color: var(--white);
+}
+
+.btn:hover { transform: translateY(-1px); }
+
+.fineprint {
+  margin-top: 10px;
+  font-size: 14px;
+  opacity: 0.8;
+}
+
+.badge {
+  display: inline-block;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  border: 1px solid rgba(255,255,255,0.18);
+  margin-bottom: 8px;
+}
+
+.status-online { background: rgba(46, 204, 113, 0.22); border-color: rgba(46, 204, 113, 0.5); }
+.status-busy { background: rgba(241, 196, 15, 0.22); border-color: rgba(241, 196, 15, 0.5); }
+.status-away { background: rgba(52, 152, 219, 0.22); border-color: rgba(52, 152, 219, 0.5); }
+
+.reader-card h4, .service-card h4 { margin: 6px 0 6px; }
+.reader-card p, .service-card p { margin: 0 0 12px; opacity: 0.9; }
+
+.streams {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+
+@media (min-width: 700px) {
+  .streams { grid-template-columns: repeat(3, 1fr); }
+}
+
+.stream-card {
+  background: linear-gradient(135deg, rgba(255,105,180,0.15), rgba(0,0,0,0.6));
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 14px;
+  padding: 16px;
+}
+
+.badge.live { background: rgba(255, 0, 0, 0.25); border-color: rgba(255, 0, 0, 0.6); }
+
+.offer-card { text-align: center; }
+
+.site-footer {
+  padding: 24px 0 40px;
+  text-align: center;
+  opacity: 0.9;
+}
+
+.page-title {
+  font-family: "Alex Brush", cursive;
+  font-size: 40px;
+  color: var(--pink);
+  margin: 0 0 16px;
+}
+
+.about {
+  padding: 40px 0 64px;
+}
+
+.about-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px;
+}
+
+@media (min-width: 900px) {
+  .about-grid { grid-template-columns: 1fr 1.2fr; align-items: center; }
+}
+
+.founder-image {
+  width: 100%;
+  border-radius: 16px;
+  border: 2px solid var(--gold);
+  box-shadow: 0 10px 30px rgba(255, 105, 180, 0.25);
+}
+
+.about-content p {
+  font-size: 18px;
+  line-height: 1.7;
+  margin: 0 0 16px;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.hero-image, .tagline, .founder-image, .page-title, .about-content p {
+  animation: fadeIn 700ms ease both;
+}
+
+.section, .card, .btn, .section-title {
+  animation: fadeIn 700ms ease both;
+}
