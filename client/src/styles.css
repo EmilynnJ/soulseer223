@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --pink: #FF69B4;
+  --gold: #FFD700;
+}
+
+html, body, #root { height: 100%; }
+body { @apply bg-black text-white; background-image: linear-gradient(rgba(0,0,0,0.5), rgba(0,0,0,0.8)), url('https://i.postimg.cc/sXdsKGTK/DALL-E-2025-06-06-14-36-29-A-vivid-ethereal-background-image-designed-for-a-psychic-reading-app.webp'); background-size: cover; background-position: center; }
+
+.brand { font-family: 'Alex Brush', cursive; color: var(--pink); }
+
+.btn { @apply inline-block rounded-full font-bold; border: 2px solid var(--gold); padding: 10px 16px; }
+.btn-primary { background: linear-gradient(135deg, var(--pink), #ff85c1); color: black; }
+.btn-outline { @apply text-white; }
