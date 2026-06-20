@@ -11,12 +11,12 @@
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
-    "express": "^4.22.2",
+    "express": "^5.2.1",
     "jsonwebtoken": "^9.0.2",
     "pg": "^8.12.0",
     "socket.io": "^4.7.5",
     "stripe": "^16.2.0",
-    "uuid": "^14.0.0"
+    "uuid": "^14.0.1"
   },
   "overrides": {
     "node-fetch": "2.6.11"
